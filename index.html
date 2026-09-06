@@ -299,6 +299,8 @@
           <button data-sp="0.75">0.75</button><button data-sp="1" class="on">1.0</button><button data-sp="1.25">1.25</button>
         </div>
       </div>
+      <div style="margin-bottom:12px;"><button class="toggle" id="dToggle" style="margin-top:0;">日本語を見る</button></div>
+      <div class="jp hide" id="dJa"></div>
       <textarea class="dictbox" id="dInput" placeholder="聞こえた英文を入力"
         autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false"></textarea>
       <div id="dResult"></div>
@@ -499,7 +501,7 @@ function pushSectionLog(sec, sess){
 var state={
   sections:[], mode:"fill", order:"seq",
   speed:parseFloat(localStorage.getItem(LS_SPEED))||1,
-  shadowEn:false, showJa:false,
+  shadowEn:false, showJa:false, dictJa:false,
   queue:[], index:0, answers:[], graded:false,
   secsInPlay:[], lastSetup:null, label:""
 };
@@ -748,11 +750,17 @@ function renderDict(){
   $("dCount").textContent=(state.index+1)+" / "+state.queue.length;
   $("dBar").style.width=(state.index/state.queue.length*100)+"%";
   $("dInput").value=""; $("dInput").disabled=false;
+  $("dJa").textContent=q.ja;
+  state.dictJa=false; applyDictJa();
   $("dResult").innerHTML="";
   $("dCheck").classList.remove("hide");
   $("dNext").classList.add("hide");
   markSpeed($("dSpeed"));
   $("dPlay").onclick=function(){ playAudio(audioUrl(q.sec,q.sen)); };
+}
+function applyDictJa(){
+  $("dJa").classList.toggle("hide", !state.dictJa);
+  $("dToggle").textContent = state.dictJa ? "日本語を隠す" : "日本語を見る";
 }
 function lcsMark(userWords, ansWords){
   var n=userWords.length, m=ansWords.length, i, j;
@@ -1031,6 +1039,7 @@ function bindSpeed(id){
 }
 bindSpeed("pSpeed"); bindSpeed("dSpeed");
 
+$("dToggle").onclick=function(){ state.dictJa=!state.dictJa; applyDictJa(); };
 $("dCheck").onclick=gradeDict;
 $("dNext").onclick=nextQuestion;
 $("dQuit").onclick=function(){ stopAudio(); if(confirm("中断してメニューに戻りますか？")) goMenu(); };
