@@ -501,7 +501,7 @@ function pushSectionLog(sec, sess){
 var state={
   sections:[], mode:"fill", order:"seq",
   speed:parseFloat(localStorage.getItem(LS_SPEED))||1,
-  shadowEn:false, showJa:false, dictJa:false,
+  shadowEn:false, showJa:false, dictJa:false, backFn:null,
   queue:[], index:0, answers:[], graded:false,
   secsInPlay:[], lastSetup:null, label:""
 };
@@ -590,7 +590,7 @@ function chooseSection(n){
     if(state.mode==="fill"){
       loadingOn(false);
       if(!items.length){ alert("セクション"+n+"に問題が見つかりませんでした。"); return; }
-      startFill(items, "セクション"+n, [n], function(){ chooseSection(n); });
+      startFill(items, "セクション"+n, [n], function(){ chooseSection(n); }, goMenu);
       return;
     }
     loadingOn(false);
@@ -614,31 +614,46 @@ function openSentenceList(sec, list){
       var b=document.createElement("button");
       b.className="senrow";
       b.innerHTML='<span class="no">'+pad2(s.sen)+'</span><span class="tx">'+esc(s.ja)+'</span>';
-      b.onclick=function(){ startAudioMode(ok.slice(i), "セクション"+sec, [sec], function(){ openSentenceList(sec,list); }); };
+      b.onclick=function(){
+        var back=function(){ openSentenceList(sec,list); };
+        startAudioMode(ok.slice(i), "セクション"+sec, [sec], back, back);
+      };
       host.appendChild(b);
     });
     $("playAll").onclick=function(){
       var q=ok.slice();
       if(state.order==="rand") shuffle(q);
-      startAudioMode(q, "セクション"+sec, [sec], function(){ openSentenceList(sec,list); });
+      startAudioMode(q, "セクション"+sec, [sec], function(){ openSentenceList(sec,list); }, function(){ openSentenceList(sec,list); });
     };
   });
 }
 
-function startFill(items, label, secs, again){
+function backToTest(){ show("scTest","定期テスト",MODE_NAME[state.mode],goMenu); }
+function makeBack(fn){
+  return function(){
+    stopAudio();
+    if((state.mode==="fill"||state.mode==="dict") && state.answers.length>0){
+      if(!confirm("ここまでの結果は記録されません。前の画面に戻りますか？")) return;
+    }
+    fn();
+  };
+}
+function startFill(items, label, secs, again, back){
   state.queue = state.order==="rand" ? shuffle(items.slice()) : items.slice();
   state.secsInPlay=secs; state.label=label; state.lastSetup=again;
   state.index=0; state.answers=[];
-  show("scQuiz", label, MODE_NAME.fill, function(){ if(confirm("練習を中断してメニューに戻りますか？")) goMenu(); });
+  state.backFn = back || goMenu;
+  show("scQuiz", label, MODE_NAME.fill, makeBack(state.backFn));
   renderFill();
 }
-function startAudioMode(list, label, secs, again){
+function startAudioMode(list, label, secs, again, back){
   if(!list.length){ alert("音声のある例文がありません。"); return; }
   state.queue=list.slice(); state.secsInPlay=secs; state.label=label; state.lastSetup=again;
   state.index=0; state.answers=[];
-  var back=function(){ stopAudio(); if(confirm("中断してメニューに戻りますか？")) goMenu(); };
-  if(state.mode==="dict"){ show("scDict",label,MODE_NAME.dict,back); renderDict(); }
-  else{ show("scPlay",label,MODE_NAME[state.mode],back); renderPlay(); }
+  state.backFn = back || goMenu;
+  var b=makeBack(state.backFn);
+  if(state.mode==="dict"){ show("scDict",label,MODE_NAME.dict,b); renderDict(); }
+  else{ show("scPlay",label,MODE_NAME[state.mode],b); renderPlay(); }
 }
 
 /* ---------- 穴埋め ---------- */
@@ -854,7 +869,7 @@ function finish(){
       ul.appendChild(li);
     });
   }
-  show("scResult","結果","",null);
+  show("scResult","結果","", state.backFn || goMenu);
 }
 var finishedSecs=[];
 
@@ -940,7 +955,7 @@ function startWeak(){
       w.forEach(function(x){ if(map[x.k]) picked.push(map[x.k]); });
       if(!picked.length){ alert("もとのCSVが見つかりませんでした。"); return; }
       if(state.order==="rand") shuffle(picked);
-      startFill(picked,"苦手問題",secs,startWeak);
+      startFill(picked,"苦手問題",secs,startWeak,goMenu);
     }else{
       var sm={};
       sentencesOf(all).forEach(function(s){ sm[weakKeyOf("dict",s.sec,s.sen)]=s; });
@@ -950,7 +965,7 @@ function startWeak(){
         loadingOn(false);
         if(!ok.length){ alert("音声のある苦手問題がありません。"); return; }
         if(state.order==="rand") shuffle(ok);
-        startAudioMode(ok,"苦手問題",secs,startWeak);
+        startAudioMode(ok,"苦手問題",secs,startWeak,goMenu);
       });
     }
   }).catch(function(){ loadingOn(false); alert("読み込みに失敗しました。"); });
@@ -964,13 +979,13 @@ function startTest(secs){
     if(state.mode==="fill"){
       loadingOn(false);
       if(!all.length){ alert("問題が見つかりませんでした。"); return; }
-      startFill(all,label,secs,again);
+      startFill(all,label,secs,again,backToTest);
     }else{
       filterWithAudio(sentencesOf(all)).then(function(ok){
         loadingOn(false);
         if(!ok.length){ alert("音声のある例文がありません。"); return; }
         if(state.order==="rand") shuffle(ok);
-        startAudioMode(ok,label,secs,again);
+        startAudioMode(ok,label,secs,again,backToTest);
       });
     }
   }).catch(function(e){ loadingOn(false); alert(e.message||"読み込みに失敗しました。"); });
