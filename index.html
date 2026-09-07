@@ -122,6 +122,10 @@
   .corr{position:absolute;left:6px;top:-13px;font-size:13px;line-height:1.2;color:var(--red);
     white-space:nowrap;font-family:var(--kyokasho);pointer-events:none;}
 
+  .wordnote{margin-top:16px;padding-top:12px;border-top:1px solid var(--line);}
+  .wordnote .ph{font-size:17px;font-weight:600;line-height:1.7;}
+  .wordnote .mn{font-size:14px;color:var(--ink-soft);line-height:1.8;}
+  .wordnote .ni.gap{margin-top:11px;}
   .qactions{margin-top:20px;}
   .audiobtn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);
     background:rgba(255,255,255,.85);border-radius:999px;padding:7px 15px;color:var(--accent);
@@ -262,6 +266,7 @@
       <div class="jp" id="qJa"></div>
       <div class="en" id="qEn"></div>
       <div id="qVerdict"></div>
+      <div id="qNote"></div>
       <div class="qactions"><button class="audiobtn hide" id="qPlay">▶ 例文を再生</button></div>
     </div>
     <button class="btn primary" id="checkBtn">答え合わせ</button>
@@ -382,13 +387,25 @@ function parseCSV(text){
   return rows;
 }
 var JP_RE=/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/;
-function normalizeRow(r){
-  if(r.length===5) return r;
-  if(r.length<5) return null;
-  var head=r.slice(0,3), rest=r.slice(3), idx=-1, i;
-  for(i=0;i<rest.length;i++){ if(JP_RE.test(rest[i])){ idx=i; break; } }
-  if(idx<=0) idx=rest.length-1;
-  return [head[0],head[1],head[2], rest.slice(0,idx).join(","), rest.slice(idx).join(",")];
+function noteNum(h){
+  var m=h.match(/(\d+)$/);
+  return m ? parseInt(m[1],10) : 1;
+}
+function headerMap(row){
+  var map={phs:[], mns:[]}, i, h;
+  for(i=0;i<row.length;i++){
+    h=String(row[i]).replace(/\s/g,"");
+    if(/^(語句|熟語|見出し)\d*$/.test(h)){ map.phs.push({i:i,n:noteNum(h)}); continue; }
+    if(/^意味\d*$/.test(h)){ map.mns.push({i:i,n:noteNum(h)}); continue; }
+    if(map.sec===undefined && /section|セクション/i.test(h)) map.sec=i;
+    else if(map.sen===undefined && /例文/.test(h)) map.sen=i;
+    else if(map.word===undefined && /単語/.test(h)) map.word=i;
+    else if(map.en===undefined && /英文/.test(h)) map.en=i;
+    else if(map.ja===undefined && /日本文|和訳/.test(h)) map.ja=i;
+  }
+  map.phs.sort(function(a,b){return a.n-b.n;});
+  map.mns.sort(function(a,b){return a.n-b.n;});
+  return map;
 }
 function splitBlanks(s){
   var tokens=[],blanks=[],re=/【([^】]*)】/g,last=0,m;
@@ -426,17 +443,39 @@ function loadSection(no){
     }).then(function(b){ return decodeBuf(b); });
   }
   return p.then(function(text){
-    var rows=parseCSV(text), out=[], i, r, en, sb;
+    var rows=parseCSV(text), out=[], i, k, r, en, sb, notes;
+    var hdr=null, map=null;
+    if(rows.length && !/^\s*\d/.test(String(rows[0][0]||""))){
+      hdr=rows[0];
+      var m=headerMap(hdr);
+      if(m.en!==undefined && m.ja!==undefined) map=m;
+    }
     for(i=0;i<rows.length;i++){
-      r=normalizeRow(rows[i]);
+      notes=[];
+      if(map && rows[i].length===hdr.length && /\d/.test(String(rows[i][map.sec!==undefined?map.sec:0]))){
+        r=[];
+        r[0]=rows[i][map.sec!==undefined?map.sec:0];
+        r[1]=rows[i][map.sen!==undefined?map.sen:1];
+        r[2]=rows[i][map.word!==undefined?map.word:2];
+        r[3]=rows[i][map.en];
+        r[4]=rows[i][map.ja];
+        for(k=0;k<Math.max(map.phs.length,map.mns.length);k++){
+          var a=map.phs[k]!==undefined ? String(rows[i][map.phs[k].i]||"").trim() : "";
+          var b=map.mns[k]!==undefined ? String(rows[i][map.mns[k].i]||"").trim() : "";
+          if(a||b) notes.push({ph:a, mn:b});
+        }
+      }else{
+        r=normalizeRow(rows[i]);
+      }
       if(!r) continue;
-      if(!/\d/.test(r[0])) continue;
+      if(!/\d/.test(String(r[0]||""))) continue;
       en=r[3]||"";
       if(en.indexOf("【")<0) continue;
       sb=splitBlanks(en);
       if(!sb.blanks.length) continue;
       out.push({sec:parseInt(r[0],10), sen:parseInt(r[1],10), word:String(r[2]).trim(),
-                en:en, ja:(r[4]||"").trim(), tokens:sb.tokens, blanks:sb.blanks});
+                en:en, ja:(r[4]||"").trim(), notes:notes,
+                tokens:sb.tokens, blanks:sb.blanks});
     }
     sectionCache[no]=out;
     return out;
@@ -665,6 +704,7 @@ function renderFill(){
   $("qBar").style.width=(state.index/state.queue.length*100)+"%";
   $("qJa").textContent=q.ja;
   $("qVerdict").innerHTML="";
+  $("qNote").innerHTML="";
   $("checkBtn").classList.remove("hide");
   $("nextBtn").classList.add("hide");
   var host=$("qEn"); host.innerHTML="";
@@ -718,6 +758,15 @@ function gradeFill(){
   var v=$("qVerdict");
   v.className="verdict "+(allOk?"ok":"ng");
   v.textContent=allOk?"正解":"不正解";
+  if(q.notes && q.notes.length){
+    var nh='<div class="wordnote">';
+    q.notes.forEach(function(x,ni){
+      nh+='<div class="ni'+(ni?' gap':'')+'">'+
+          (x.ph?'<div class="ph">'+esc(x.ph)+'</div>':'')+
+          (x.mn?'<div class="mn">'+esc(x.mn)+'</div>':'')+'</div>';
+    });
+    $("qNote").innerHTML=nh+'</div>';
+  }
   if(allOk) weakRemove("fill",q.sec,q.word); else weakAdd("fill",q.sec,q.word);
   state.answers.push({sec:q.sec, sen:q.sen, word:q.word, ok:allOk,
     typed: allOk?"":typed.join(" / "), correct: allOk?"":q.blanks.join(" / ")});
