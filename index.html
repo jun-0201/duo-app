@@ -407,6 +407,14 @@ function headerMap(row){
   map.mns.sort(function(a,b){return a.n-b.n;});
   return map;
 }
+function normalizeRow(r){
+  if(r.length===5) return r;
+  if(r.length<5) return null;
+  var head=r.slice(0,3), rest=r.slice(3), idx=-1, i;
+  for(i=0;i<rest.length;i++){ if(JP_RE.test(rest[i])){ idx=i; break; } }
+  if(idx<=0) idx=rest.length-1;
+  return [head[0],head[1],head[2], rest.slice(0,idx).join(","), rest.slice(idx).join(",")];
+}
 function splitBlanks(s){
   var tokens=[],blanks=[],re=/【([^】]*)】/g,last=0,m;
   while((m=re.exec(s))!==null){
